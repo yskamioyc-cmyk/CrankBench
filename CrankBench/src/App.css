@@ -1,0 +1,32 @@
+/* 画面全体の余白をゼロにし、スクロールバーを隠す */
+* {
+  box-sizing: border-box;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #111;
+}
+
+/* App.tsx の container クラスを画面いっぱいに広げる */
+.container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* コントロールパネルの縦幅を固定 */
+.control-panel {
+  height: 100vh;
+}
+
+/* 3Dエリアを画面の残りの幅・高さ一杯に広げる */
+.viewer-area {
+  height: 100vh;
+  flex: 1;
+}
