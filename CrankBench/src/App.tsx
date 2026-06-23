@@ -26,7 +26,7 @@ function Engine3D({ simData, stroke, bore, conrod }: { simData: SimulationPoint[
   useFrame((state, delta) => {
     if (simData.length === 0) return;
 
-    const rpm = 600; // 挙動がはっきり目視できるように600 RPM（アイドリング以下）に設定
+    const rpm = 300; // 動きを完全に目視確認できるように300 RPMまで落とします
     const degPerSecond = (rpm * 360) / 60;
     angleRef.current = (angleRef.current + degPerSecond * delta) % 720;
     
@@ -34,10 +34,10 @@ function Engine3D({ simData, stroke, bore, conrod }: { simData: SimulationPoint[
     const data = simData[currentIndex];
     if (!data) return;
 
+    // クランクの回転角（ラジアン）
     const thetaRad = THREE.MathUtils.degToRad(data.crank_angle_deg);
 
-    // 1. クランクピンの現在位置 (中心[0,0,0]からの相対座標)
-    // Three.jsの座標系に合わせ、サイン・コサインの向きを調整
+    // 1. クランクピンの現在位置 (中心からの相対座標)
     const pinX = crankRadius * Math.sin(thetaRad);
     const pinY = crankRadius * Math.cos(thetaRad);
 
@@ -55,7 +55,7 @@ function Engine3D({ simData, stroke, bore, conrod }: { simData: SimulationPoint[
       crankRef.current.rotation.z = -thetaRad; 
     }
 
-    // 4. 【ココが修正コア】コネクティングロッドの結合と「下向き」への修正
+    // 4. 【修正のコア】逆位相の解消
     if (conrodRef.current) {
       // コンロッドの根本（グループの原点）はピストンの中心に接着
       conrodRef.current.position.x = 0;
@@ -65,13 +65,12 @@ function Engine3D({ simData, stroke, bore, conrod }: { simData: SimulationPoint[
       const dx = pinX - 0;
       const dy = pinY - pistonY;
       
-      // 【修正】atan2の符号を調整し、棒が常に「下（クランクピン）」を向くように回転角を決定
-      conrodRef.current.rotation.z = Math.atan2(dx, dy);
+      // atan2に渡すyの符号を反転（-dyに）させ、ベクトルの向きを正しく下（クランク側）に向けます
+      conrodRef.current.rotation.z = Math.atan2(dx, -dy);
     }
   });
 
   return (
-    // エンジンの中心（クランク軸）を画面中央[0, 0, 0]付近に据える
     <group position={[0, -0.8, 0]}>
       
       {/* ① シリンダ壁 */}
@@ -86,12 +85,13 @@ function Engine3D({ simData, stroke, bore, conrod }: { simData: SimulationPoint[
         <meshLambertMaterial color="#ffffff" emissive="#222222" />
       </mesh>
 
-      {/* ③ コネクティングロッド（下に向けて生やす構造） */}
-      {/* 親グループ(conrodRef)がピストン位置にあるので、
-          中のメッシュを「マイナスY方向（下側）」にずらすことで、
-          ピストンの下にぶら下がるコンロッドになります */}
+      {/* ③ 【修正】コネクティングロッドのメッシュ位置 */}
+      {/* 親グループ(conrodRef)がピストン位置を支点として、下（クランク側）を向くように回転します。
+          そのため、中のメッシュは「マイナスY方向（下側）」にずらすことで、
+          ピストンの下にぶら下がりつつクランクピンを捉える構造になります。
+      */}
       <group ref={conrodRef}>
-        <mesh position={[0, conrodLength3D / 2, 0]}> {/* ← ここの符号をプラスにして位置関係を補正 */}
+        <mesh position={[0, -conrodLength3D / 2, 0]}> {/* ← 符号をマイナス（-）に修正 */}
           <boxGeometry args={[0.15, conrodLength3D, 0.1]} />
           <meshLambertMaterial color="#aaaaaa" emissive="#111111" />
         </mesh>
