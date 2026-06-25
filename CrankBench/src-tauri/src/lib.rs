@@ -17,13 +17,14 @@ pub struct SimulationPoint {
     pub piston_y_mm: f64,     
     pub pressure_mpa: f64,    
     pub temperature_k: f64,   
+    pub entropy_j_k: f64,     // 【新規追加】エントロピー (J/K)
 }
 
 #[derive(serde::Serialize)]
 pub struct SimulationResult {
     pub points: Vec<SimulationPoint>,
-    pub max_torque_nm: f64, // 【修正】現在のトルクではなく最大トルク
-    pub max_power_ps: f64,  // 【修正】現在の馬力ではなく最高出力
+    pub max_torque_nm: f64, 
+    pub max_power_ps: f64,  
 }
 
 #[tauri::command]
@@ -47,6 +48,10 @@ fn calculate_kinematics(config: EngineConfig) -> SimulationResult {
 
     let mut total_work_j = 0.0; 
     let mut prev_volume = max_volume;
+
+    // 空気の比熱定数 (J / kg・K) - 理想気体近似
+    let c_v = 718.0; 
+    let r_gas = 287.0;
 
     for angle_deg in 0..=720 {
         let theta = (angle_deg as f64).to_radians();
@@ -82,38 +87,35 @@ fn calculate_kinematics(config: EngineConfig) -> SimulationResult {
         }
         prev_volume = volume_cc;
 
+        // 【T-S線図用】 理想気体のエントロピー変化の公式： ΔS = Cv*ln(T/T0) + R*ln(V/V0)
+        let entropy_j_k = c_v * (temperature / t0).ln() + r_gas * (volume_cc / max_volume).ln();
+
         points.push(SimulationPoint {
             crank_angle_deg: angle_deg as f64,
             volume_cc,
             piston_y_mm,
             pressure_mpa: pressure,
             temperature_k: temperature,
+            entropy_j_k, // 追加
         });
     }
 
     let total_engine_work_j = total_work_j * (config.cylinders as f64);
     let base_indicated_torque = total_engine_work_j / (4.0 * PI);
 
-    // 【修正】1000〜9000 RPMまで走査し、現実的な熱効率・摩擦損失を考慮した最大値を導出
     let mut max_torque_nm = 0.0;
     let mut max_power_ps = 0.0;
 
     for rpm_iter in (1000..=9000).step_by(100) {
         let n = rpm_iter as f64;
-        
-        // 充填効率 (4000 RPM付近をピークとする簡易二次曲線モデル)
         let volumetric_efficiency = 0.95 - ((n - 4000.0) / 6000.0).powi(2) * 0.2;
-        
-        // 機械的摩擦損失 (回転数に比例して増大)
         let friction_loss = 0.10 + 0.000015 * n;
         
-        // 正味トルク
         let net_torque = base_indicated_torque * volumetric_efficiency * (1.0 - friction_loss);
         if net_torque > max_torque_nm {
             max_torque_nm = net_torque;
         }
 
-        // 馬力算出 (PS)
         let power_kw = (net_torque * (2.0 * PI * n / 60.0)) / 1000.0;
         let power_ps = power_kw * 1.35962;
         if power_ps > max_power_ps {

@@ -9,27 +9,31 @@ interface SimulationPoint {
   piston_y_mm: number;
   pressure_mpa: number;    
   temperature_k: number;   
+  entropy_j_k: number; 
 }
 
 interface SimulationResult {
   points: SimulationPoint[];
-  max_torque_nm: number; // 更新
-  max_power_ps: number;  // 更新
+  max_torque_nm: number; 
+  max_power_ps: number;  
 }
 
-function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate }: { 
+function Engine2D({ simData, stroke, bore, conrod, cylinders, onFrameUpdate }: { 
   simData: SimulationPoint[]; 
   stroke: number; 
   bore: number; 
   conrod: number;
   cylinders: number;
-  rpm: number;
   onFrameUpdate: (index: number) => void; 
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const angleRef = useRef(0);
   const lastTimeRef = useRef<number>(0);
   const lastGraphUpdateTimeRef = useRef<number>(0);
+
+  // 【最適化1】アニメーションの描画速度を最も滑らかに見える固定値（24 RPM）に設定
+  // 1秒間に144度進むため、60FPS環境で1フレームあたり正確に2.4度ずつ滑らかに回転します
+  const ANIMATION_RPM = 12; 
 
   const getPhases = (count: number) => {
     if (count === 3) return [0, 240, 480];        
@@ -52,12 +56,14 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
         return;
       }
 
-      const degPerSecond = (rpm * 360) / 60;
+      const degPerSecond = (ANIMATION_RPM * 360) / 60;
       angleRef.current = (angleRef.current + degPerSecond * delta) % 720;
       const exactAngle = angleRef.current;
 
+      // 【最適化2】重いReactのグラフ更新（再レンダリング）を 20FPS（0.05秒）に制限
+      // これによりメインスレッドが解放され、Canvasの描画が60FPSでヌルヌル動くようになります
       lastGraphUpdateTimeRef.current += delta;
-      if (lastGraphUpdateTimeRef.current >= 0.033) {
+      if (lastGraphUpdateTimeRef.current >= 0.05) {
         onFrameUpdate(Math.floor(exactAngle) % 720);
         lastGraphUpdateTimeRef.current = 0;
       }
@@ -67,6 +73,7 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      // Canvasの描画処理（ブラウザの最高FPSで毎回実行）
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const SCALE = 1.1;
@@ -79,10 +86,9 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
       const pSpacing = 90;                 
       const centerY = canvas.height * 0.72; 
 
-      // 【修正】シリンダーの描画領域を完全に固定するための事前計算
       const maxPistonHeight = r + l;
-      const cylinderTopY = centerY - maxPistonHeight - 35; // 燃焼室の天井（シリンダーヘッド）
-      const cylinderHeight = maxPistonHeight + r + 50;     // シリンダーブロックの固定長
+      const cylinderTopY = centerY - maxPistonHeight - 35; 
+      const cylinderHeight = maxPistonHeight + r + 50;     
 
       const COLOR_CRANK = "#3b6fe2";       
       const COLOR_CONROD = "#2cd147";      
@@ -115,11 +121,9 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
       ctx.fill();
       ctx.stroke();
 
-      // 【修正】固定サイズのシリンダー壁を描画
       ctx.fillRect(frontCenterX - b/2, cylinderTopY, b, cylinderHeight);
       ctx.strokeRect(frontCenterX - b/2, cylinderTopY, b, cylinderHeight);
 
-      // 【修正】燃焼エフェクト（シリンダーヘッドからピストン上面までの可変空間）
       if (fData.cylAngle >= 360 && fData.cylAngle <= 460) {
         ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (fData.cylAngle - 360) / 100)})`;
         ctx.fillRect(frontCenterX - b/2, cylinderTopY, b, (fData.pistonY - 25) - cylinderTopY);
@@ -174,12 +178,10 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
       cylCoords.forEach((coord, i) => {
         const cX = sideBaseX + i * pSpacing;
         
-        // 【修正】固定サイズのシリンダー壁を描画
         ctx.fillStyle = COLOR_CASE;
         ctx.strokeStyle = "#252525";
         ctx.fillRect(cX - b/2, cylinderTopY, b, cylinderHeight);
         
-        // 【修正】燃焼エフェクト（シリンダーヘッドからピストン上面までの可変空間）
         if (coord.cylAngle >= 360 && coord.cylAngle <= 460) {
           ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (coord.cylAngle - 360) / 100)})`;
           ctx.fillRect(cX - b/2, cylinderTopY, b, (coord.pistonY - 25) - cylinderTopY);
@@ -248,35 +250,12 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFrameUpdate
         ctx.fill();
       });
 
-      // ctx.strokeStyle = "#ff3333";
-      // ctx.lineWidth = 3;
-      // ctx.lineCap = "round";
-      
-      // ctx.beginPath();
-      // ctx.arc(frontCenterX + r + 35, centerY + 10, 18, Math.PI * 1.1, Math.PI * 1.6);
-      // ctx.stroke();
-      // ctx.fillStyle = "#ff3333";
-      // ctx.beginPath();
-      // ctx.moveTo(frontCenterX + r + 45, centerY - 8);
-      // ctx.lineTo(frontCenterX + r + 53, centerY + 2);
-      // ctx.lineTo(frontCenterX + r + 37, centerY + 1);
-      // ctx.fill();
-
-      // ctx.beginPath();
-      // ctx.bezierCurveTo(sideBaseX - 45, centerY + 50, sideBaseX - 35, centerY + 30, sideBaseX - 35, centerY + 10);
-      // ctx.stroke();
-      // ctx.beginPath();
-      // ctx.moveTo(sideBaseX - 35, centerY + 10);
-      // ctx.lineTo(sideBaseX - 41, centerY + 20);
-      // ctx.lineTo(sideBaseX - 29, centerY + 18);
-      // ctx.fill();
-
       animationFrameId = requestAnimationFrame(render);
     };
 
     animationFrameId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [simData, stroke, bore, conrod, cylinders, rpm]);
+  }, [simData, stroke, bore, conrod, cylinders]);
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}>
@@ -291,7 +270,6 @@ export default function App() {
   const [conrod, setConrod] = useState(120.0);
   const [compression, setCompression] = useState(9.1);
   const [cylinders, setCylinders] = useState(3); 
-  const [rpm, setRpm] = useState(12); // 【修正】初期値をゆっくりと動く 12 RPM に設定
 
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
   const [torque, setTorque] = useState<number>(0); 
@@ -308,21 +286,21 @@ export default function App() {
             conrod_length_mm: conrod,
             compression_ratio: compression,
             cylinders: cylinders,
-            rpm: rpm,
+            rpm: 2000, // Rust側にはダミー値として固定の2000を渡す（計算には1000〜9000のループ走査が使われます）
           },
         });
         setSimData(result.points);
-        setTorque(result.max_torque_nm); // 更新
-        setPower(result.max_power_ps);   // 更新
+        setTorque(result.max_torque_nm); 
+        setPower(result.max_power_ps);   
       } catch (error) {
         console.error("Simulation failed:", error);
       }
     };
 
     fetchKinematics();
-  }, [bore, stroke, conrod, compression, cylinders, rpm]);
+  }, [bore, stroke, conrod, compression, cylinders]);
 
-  const currentPoint = simData[currentIdx] || { volume_cc: 0, pressure_mpa: 0, temperature_k: 0, crank_angle_deg: 0 };
+  const currentPoint = simData[currentIdx] || { volume_cc: 0, pressure_mpa: 0, temperature_k: 0, crank_angle_deg: 0, entropy_j_k: 0 };
 
   const getStrokeInfo = (angle: number) => {
     if (angle >= 0 && angle < 180) return { name: "① 吸気行程 (Intake)", color: "#4fa9ff" };
@@ -356,15 +334,6 @@ export default function App() {
             <option value={4}>直列4気筒 (Inline-4 / 180° Flat)</option>
             <option value={6}>直列6気筒 (Inline-6 / 120° Smooth)</option>
           </select>
-        </div>
-
-        {/* 【修正】スライダーの最小値を 12 RPM に設定 */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
-            <span style={{ color: "#aaa" }}>描画回転数 (Animation RPM)</span>
-            <span style={{ color: "#ffb64f", fontWeight: "bold" }}>{rpm} RPM</span>
-          </div>
-          <input type="range" min="12" max="6000" step="1" value={rpm} onChange={(e) => setRpm(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
         <div>
@@ -420,7 +389,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* 【修正】タイトルをMAX PERFORMANCEに変更し、ポテンシャル出力を表示 */}
         <div style={{ marginTop: "auto", padding: "12px", background: "#1c1c1c", borderRadius: "6px", border: "1px solid #222" }}>
           <h4 style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#888" }}>MAX PERFORMANCE (up to 9000 RPM)</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "13px" }}>
@@ -440,41 +408,66 @@ export default function App() {
         </div>
       </div>
 
-      {/* 右側：2Dビューアエリア ＋ PVグラフエリア */}
+      {/* 右側：2Dビューアエリア ＋ グラフエリア（P-V & T-S 上下分割） */}
       <div className="viewer-area" style={{ flex: 1, display: "flex", background: "#161616", height: "100%" }}>
         
-        {/* 2Dグラフィックス領域 (左半分) */}
+        {/* 左側: 2Dグラフィックス領域 */}
         <div style={{ flex: 1, height: "100%", position: "relative", display: "flex", flexDirection: "column" }}>
-          <Engine2D simData={simData} stroke={stroke} bore={bore} conrod={conrod} cylinders={cylinders} rpm={rpm} onFrameUpdate={setCurrentIdx} />
+          <Engine2D simData={simData} stroke={stroke} bore={bore} conrod={conrod} cylinders={cylinders} onFrameUpdate={setCurrentIdx} />
           <div style={{ position: "absolute", bottom: 15, left: 20, pointerEvents: "none", color: "#666", fontSize: "11px" }}>
-            [2D Canvas Viewport] 正面・側面 ツインビューモード
+            [2D Canvas Viewport] 描画最適化・固定回転数(12 RPM)モード
           </div>
         </div>
 
-        {/* PV線図グラフ領域 (右半分) */}
-        <div style={{ flex: 1, height: "100%", padding: "30px", background: "#131313", display: "flex", flexDirection: "column", borderLeft: "1px solid #222" }}>
-          <div style={{ marginBottom: "15px" }}>
-            <h3 style={{ margin: 0, fontSize: "16px", color: "#ffb64f" }}>P-V Diagram (圧力 - 容積線図)</h3>
-            <p style={{ margin: "3px 0 0 0", fontSize: "12px", color: "#666" }}>全行程における1気筒あたりのインジケータ仕事</p>
+        {/* 右側: グラフ領域 (P-V線図 と T-S線図 を上下に分割配置) */}
+        <div style={{ flex: 1, height: "100%", padding: "20px", background: "#131313", display: "flex", flexDirection: "column", borderLeft: "1px solid #222", gap: "20px" }}>
+          
+          {/* 上段：P-V線図 (Pressure - Volume) */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
+            <div style={{ marginBottom: "10px" }}>
+              <h3 style={{ margin: 0, fontSize: "14px", color: "#4fa9ff" }}>P-V Diagram (圧力 - 容積線図)</h3>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>1気筒あたりの図示仕事（ループ面積＝力学的エネルギー）</p>
+            </div>
+            <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                  <XAxis type="number" dataKey="volume_cc" name="Volume" unit="cc" domain={["auto", "auto"]} stroke="#888" tickFormatter={(v) => v != null ? v.toFixed(0) : "0"} />
+                  <YAxis type="number" dataKey="pressure_mpa" name="Pressure" unit="MPa" domain={[0, "auto"]} stroke="#888" />
+                  <ZAxis type="number" range={[4, 4]} />
+                  <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
+                  <Scatter name="Cycle" data={simData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} />
+                  {simData.length > 0 && (
+                    <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} />
+                  )}
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                <XAxis type="number" dataKey="volume_cc" name="Volume" unit="cc" domain={["auto", "auto"]} stroke="#888" tickFormatter={(v) => v != null ? v.toFixed(0) : "0"} />
-                <YAxis type="number" dataKey="pressure_mpa" name="Pressure" unit="MPa" domain={[0, "auto"]} stroke="#888" />
-                <ZAxis type="number" range={[4, 4]} />
-                <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444" }} />
-                
-                <Scatter name="Cycle" data={simData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} />
-                
-                {simData.length > 0 && (
-                  <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={6} fill="#ff4f4f" stroke="#fff" strokeWidth={2} />
-                )}
-              </ScatterChart>
-            </ResponsiveContainer>
+          {/* 下段：T-S線図 (Temperature - Entropy) */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
+            <div style={{ marginBottom: "10px" }}>
+              <h3 style={{ margin: 0, fontSize: "14px", color: "#ff6b6b" }}>T-S Diagram (温度 - エントロピー線図)</h3>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>断熱過程と等容燃焼における熱力学的エネルギーの推移</p>
+            </div>
+            <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                  <XAxis type="number" dataKey="entropy_j_k" name="Entropy" unit="J/K" domain={["auto", "auto"]} stroke="#888" tickFormatter={(v) => v != null ? v.toFixed(1) : "0"} />
+                  <YAxis type="number" dataKey="temperature_k" name="Temperature" unit="K" domain={[0, "auto"]} stroke="#888" />
+                  <ZAxis type="number" range={[4, 4]} />
+                  <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
+                  <Scatter name="Cycle" data={simData} fill="#ff6b6b" opacity={0.5} line={{ stroke: "#ff6b6b", strokeWidth: 1.5 }} shape={() => null} />
+                  {simData.length > 0 && (
+                    <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} />
+                  )}
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
           </div>
+
         </div>
 
       </div>
