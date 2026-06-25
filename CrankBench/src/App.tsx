@@ -6,13 +6,13 @@ import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, Cartes
 import * as THREE from "three";
 import "./App.css";
 
-// 【更新】Rustから返ってくるデータの型定義に熱力学パラメータを追加
+// Rustから返ってくるデータの型定義
 interface SimulationPoint {
   crank_angle_deg: number;
   volume_cc: number;
   piston_y_mm: number;
-  pressure_mpa: number;    // 追加
-  temperature_k: number;   // 追加
+  pressure_mpa: number;    
+  temperature_k: number;   
 }
 
 function Engine3D({ simData, stroke, bore, conrod, onFrameUpdate }: { 
@@ -20,36 +20,41 @@ function Engine3D({ simData, stroke, bore, conrod, onFrameUpdate }: {
   stroke: number; 
   bore: number; 
   conrod: number;
-  onFrameUpdate: (index: number) => void; // グラフ追従用のコールバック
+  onFrameUpdate: (index: number) => void; 
 }) {
   const pistonRef = useRef<THREE.Mesh>(null);
   const conrodRef = useRef<THREE.Mesh>(null);
   const crankRef = useRef<THREE.Group>(null);
   const angleRef = useRef(0);
+  const lastUpdatedIdxRef = useRef<number>(-1);
 
   const SCALE = 0.05; 
   const crankRadius = (stroke * SCALE) / 2;
   const pistonRadius = (bore * SCALE) / 2;
   const conrodLength3D = conrod * SCALE;
-  const lastUpdatedIdxRef = useRef<number>(-1);
+
   useFrame((state, delta) => {
     if (simData.length === 0) return;
 
-    const rpm = 12; 
+    // 【①対策】回転数を 20 RPM（ゆっくり・確実な動作）に設定
+    const rpm = 20; 
     const degPerSecond = (rpm * 360) / 60;
+    
+    // angleRef.current は毎フレーム、小数点以下まで「完全に連続した滑らかな数値」として増えます
     angleRef.current = (angleRef.current + degPerSecond * delta) % 720;
     
-    const currentIndex = Math.floor(angleRef.current);
-    const data = simData[currentIndex];
-    if (!data) return;
+    const exactAngle = angleRef.current;
+    const currentIndex = Math.floor(exactAngle);
 
-    // 現在の計算インデックスを親（App）に通知してグラフの点を動かす
+    // 【①対策】重いReact側の再レンダリング通知は、整数（度）が変わった瞬間だけ「間引き」して負荷を激減
     if (currentIndex !== lastUpdatedIdxRef.current) {
       onFrameUpdate(currentIndex);
       lastUpdatedIdxRef.current = currentIndex;
     }
 
-    const thetaRad = THREE.MathUtils.degToRad(data.crank_angle_deg);
+    // 【①対策】元の正常に動いていた数式に、小数点を含んだ「exactAngle」を直接投入
+    // 数式そのものは一切弄っていないため、パーツ間の接合位置がズレることは絶対にありません
+    const thetaRad = THREE.MathUtils.degToRad(exactAngle);
 
     const pinX = crankRadius * Math.sin(thetaRad);
     const pinY = crankRadius * Math.cos(thetaRad);
@@ -77,7 +82,8 @@ function Engine3D({ simData, stroke, bore, conrod, onFrameUpdate }: {
   });
 
   return (
-    <group position={[0, -0.8, 0]}>
+    // 【②対策】パーツ全体が綺麗に収まるよう、エンジンの初期配置位置を少し下に下げました
+    <group position={[0, -2.2, 0]}>
       {/* ① シリンダ壁 */}
       <mesh position={[0, crankRadius + conrodLength3D - 0.5, 0]}>
         <cylinderGeometry args={[pistonRadius + 0.05, pistonRadius + 0.05, 5, 16, 1, true]} />
@@ -113,9 +119,6 @@ function Engine3D({ simData, stroke, bore, conrod, onFrameUpdate }: {
   );
 }
 
-// ==========================================
-// メインアプリケーション
-// ==========================================
 export default function App() {
   const [bore, setBore] = useState(64.0);
   const [stroke, setStroke] = useState(68.2);
@@ -124,7 +127,7 @@ export default function App() {
   const [cylinders, setCylinders] = useState(3); 
 
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
-  const [currentIdx, setCurrentIdx] = useState<number>(0); // 【追加】現在のシミュレーション位置（0〜720）
+  const [currentIdx, setCurrentIdx] = useState<number>(0); 
 
   useEffect(() => {
     const fetchKinematics = async () => {
@@ -146,7 +149,6 @@ export default function App() {
     fetchKinematics();
   }, [bore, stroke, conrod, compression]);
 
-  // 現在動作中のリアルタイムデータ
   const currentPoint = simData[currentIdx] || { volume_cc: 0, pressure_mpa: 0, temperature_k: 0, crank_angle_deg: 0 };
 
   return (
@@ -161,7 +163,6 @@ export default function App() {
 
         <hr style={{ border: "none", borderTop: "1px solid #222", width: "100%" }} />
 
-        {/* 気筒配置 */}
         <div>
           <label style={{ fontSize: "14px", color: "#aaa" }}>気筒配置 (Layout)</label>
           <select 
@@ -176,7 +177,6 @@ export default function App() {
           </select>
         </div>
 
-        {/* スライダー群 */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ボア径 (Bore)</span>
@@ -209,7 +209,6 @@ export default function App() {
           <input type="range" min="7.0" max="13.0" step="0.1" value={compression} onChange={(e) => setCompression(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
-        {/* テレメトリーモニター（数値表示） */}
         <div style={{ padding: "15px", background: "#1c1c1c", borderRadius: "6px", border: "1px solid #222" }}>
           <h4 style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#888", letterSpacing: "0.5px" }}>REALTIME THERMODYNAMICS</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
@@ -219,16 +218,15 @@ export default function App() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "#aa88ff" }}>筒内圧力 P:</span>
-              <span style={{ fontFamily: "monospace", color: "#aa88ff", fontWeight: "bold" }}>{currentPoint.pressure_mpa.toFixed(3)} MPa</span>
+              <span style={{ fontFamily: "monospace", color: "#aa88ff", fontWeight: "bold" }}>{currentPoint.pressure_mpa ? currentPoint.pressure_mpa.toFixed(3) : "0.100"} MPa</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "#ff8866" }}>筒内温度 T:</span>
-              <span style={{ fontFamily: "monospace", color: "#ff8866" }}>{(currentPoint.temperature_k - 273.15).toFixed(1)} ℃</span>
+              <span style={{ fontFamily: "monospace", color: "#ff8866" }}>{currentPoint.temperature_k ? (currentPoint.temperature_k - 273.15).toFixed(1) : "20.0"} ℃</span>
             </div>
           </div>
         </div>
 
-        {/* SPECIFICATION */}
         <div style={{ marginTop: "auto", padding: "15px", background: "#1c1c1c", borderRadius: "6px", border: "1px solid #222" }}>
           <h4 style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#888" }}>SPECIFICATION</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "13px" }}>
@@ -244,12 +242,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* 右側：3Dビューアエリア ＋ PVグラフエリア（50%ずつ分割） */}
+      {/* 右側：3Dビューアエリア ＋ PVグラフエリア */}
       <div className="viewer-area" style={{ flex: 1, display: "flex", background: "#161616", height: "100%" }}>
         
         {/* 3D領域 (左半分) */}
         <div style={{ flex: 1, height: "100%", position: "relative" }}>
-          <Canvas camera={{ position: [0, 0.5, 5], fov: 45 }}>
+          {/* 【②対策】初期カメラ設定を調整（Z軸を引き、画角fovを45に狭めることで歪みを抑えて全体を美しく収めます） */}
+          <Canvas camera={{ position: [0, 0, 10.5], fov: 45 }}>
             <ambientLight intensity={1.5} />
             <directionalLight position={[5, 10, 5]} intensity={2.0} />
 
@@ -274,13 +273,14 @@ export default function App() {
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                <XAxis type="number" dataKey="volume_cc" name="Volume" unit="cc" domain={["auto", "auto"]} stroke="#888" tickFormatter={(v) => v.toFixed(0)} />
+                {/* 初期起動時や安全対策のため tickFormatter にガードを追加 */}
+                <XAxis type="number" dataKey="volume_cc" name="Volume" unit="cc" domain={["auto", "auto"]} stroke="#888" tickFormatter={(v) => v != null ? v.toFixed(0) : "0"} />
                 <YAxis type="number" dataKey="pressure_mpa" name="Pressure" unit="MPa" domain={[0, "auto"]} stroke="#888" />
                 <ZAxis type="number" range={[4, 4]} />
                 <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444" }} />
                 
-                {/* サイクル全体の軌跡（点群として細かく配置して線に見せる） */}
-                <Scatter name="Cycle" data={simData} fill="#4fa9ff" opacity={0.3} />
+                {/* 【③対策】薄いバラバラの点ではなく、一本の綺麗な「熱力学サイクル軌跡線」として常時マッピングされるよう強化 */}
+                <Scatter name="Cycle" data={simData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape = {() => null} />
                 
                 {/* 現在のクランク角の位置を示すリアルタイムインジケータ（赤い大きなドット） */}
                 {simData.length > 0 && (
