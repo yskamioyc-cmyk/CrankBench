@@ -137,6 +137,42 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (fData.cylAngle - 360) / 100)})`;
         ctx.fillRect(frontCenterX - b/2, cylinderTopY, b, (fData.pistonY - 25) - cylinderTopY);
       }
+      
+      // --- バルブの描画ロジック (正面断面図用、追加箇所) ---
+      {
+        const maxValveDrop = 14; // バルブの最大リフト量（mm相当）
+        let intakeDrop = 0;
+        let exhaustDrop = 0;
+
+        // 吸気行程 (0〜180度): サイン波を用いて滑らかにリフトさせる
+        if (fData.cylAngle >= 0 && fData.cylAngle <= 180) {
+          intakeDrop = maxValveDrop * Math.sin((fData.cylAngle * Math.PI) / 180);
+        }
+        // 排気行程 (540〜720度): 同様にサイン波でリフト
+        else if (fData.cylAngle >= 540 && fData.cylAngle <= 720) {
+          exhaustDrop = maxValveDrop * Math.sin(((fData.cylAngle - 540) * Math.PI) / 180);
+        }
+
+        const valveRadius = b * 0.22; // ボア径に合わせてバルブの傘のサイズを可変にする
+
+        // 吸気バルブ (左側・水色)
+        const intakeX = frontCenterX - b / 4;
+        const intakeY = cylinderTopY + intakeDrop;
+        ctx.fillStyle = "#88ccff";
+        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); // ステム（軸）
+        ctx.beginPath();
+        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); // 傘（半円）
+        ctx.fill();
+
+        // 排気バルブ (右側・オレンジ/グレー系)
+        const exhaustX = frontCenterX + b / 4;
+        const exhaustY = cylinderTopY + exhaustDrop;
+        ctx.fillStyle = "#ffaa88";
+        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); // ステム
+        ctx.beginPath();
+        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); // 傘
+        ctx.fill();
+      }
 
       ctx.fillStyle = "#444444";
       ctx.strokeStyle = "#555555";
@@ -191,10 +227,46 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.strokeStyle = "#252525";
         ctx.fillRect(cX - b/2, cylinderTopY, b, cylinderHeight);
         
+        // 燃焼エフェクト
         if (coord.cylAngle >= 360 && coord.cylAngle <= 460) {
           ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (coord.cylAngle - 360) / 100)})`;
           ctx.fillRect(cX - b/2, cylinderTopY, b, (coord.pistonY - 25) - cylinderTopY);
         }
+
+        // --- バルブの描画ロジック ---
+        const maxValveDrop = 14; // バルブの最大リフト量（mm相当）
+        let intakeDrop = 0;
+        let exhaustDrop = 0;
+
+        // 吸気行程 (0〜180度): サイン波を用いて滑らかにリフトさせる
+        if (coord.cylAngle >= 0 && coord.cylAngle <= 180) {
+          intakeDrop = maxValveDrop * Math.sin((coord.cylAngle * Math.PI) / 180);
+        }
+        // 排気行程 (540〜720度): 同様にサイン波でリフト
+        else if (coord.cylAngle >= 540 && coord.cylAngle <= 720) {
+          exhaustDrop = maxValveDrop * Math.sin(((coord.cylAngle - 540) * Math.PI) / 180);
+        }
+
+        const valveRadius = b * 0.22; // ボア径に合わせてバルブの傘のサイズを可変にする
+
+        // 吸気バルブ (左側・水色)
+        const intakeX = cX - b / 4;
+        const intakeY = cylinderTopY + intakeDrop;
+        ctx.fillStyle = "#88ccff";
+        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); // ステム（軸）
+        ctx.beginPath();
+        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); // 傘（半円）
+        ctx.fill();
+
+        // 排気バルブ (右側・オレンジ/グレー系)
+        const exhaustX = cX + b / 4;
+        const exhaustY = cylinderTopY + exhaustDrop;
+        ctx.fillStyle = "#ffaa88";
+        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); // ステム
+        ctx.beginPath();
+        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); // 傘
+        ctx.fill();
+        // --- ここまで ---
         
         ctx.strokeStyle = "#3a3a3a";
         ctx.lineWidth = 1;
