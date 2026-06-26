@@ -474,34 +474,110 @@ export default function App() {
           />
         </div>
 
+        {/* ボア径 (Bore) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ボア径 (Bore)</span>
-            <span style={{ color: "#4fa9ff", fontWeight: "bold" }}>{bore.toFixed(1)} mm</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <input 
+                type="number" 
+                min="50" 
+                max="100" 
+                step="0.1" 
+                value={bore} 
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) setBore(val);
+                }}
+                onBlur={() => {
+                  // フォーカスが外れた時に、許容範囲(50〜100)に強制クランプ
+                  setBore(Math.max(50, Math.min(100, bore)));
+                }}
+                style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
+              />
+              <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
+            </div>
           </div>
           <input type="range" min="50" max="100" step="0.1" value={bore} onChange={(e) => setBore(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
+        {/* ストローク (Stroke) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ストローク (Stroke)</span>
-            <span style={{ color: "#4fa9ff", fontWeight: "bold" }}>{stroke.toFixed(1)} mm</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <input 
+                type="number" 
+                min="50" 
+                max="100" 
+                step="0.1" 
+                value={stroke} 
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) setStroke(val);
+                }}
+                onBlur={() => {
+                  // 許容範囲(50〜100)にクランプ
+                  setStroke(Math.max(50, Math.min(100, stroke)));
+                }}
+                style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
+              />
+              <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
+            </div>
           </div>
           <input type="range" min="50" max="100" step="0.1" value={stroke} onChange={(e) => setStroke(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
+        {/* コンロッド長 (Conrod) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>コンロッド長 (Conrod)</span>
-            <span style={{ color: "#4fa9ff", fontWeight: "bold" }}>{conrod.toFixed(1)} mm</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <input 
+                type="number" 
+                min="100" 
+                max="160" 
+                step="0.1" 
+                value={conrod} 
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) setConrod(val);
+                }}
+                onBlur={() => {
+                  // 許容範囲(100〜160)にクランプ
+                  setConrod(Math.max(100, Math.min(160, conrod)));
+                }}
+                style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
+              />
+              <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
+            </div>
           </div>
           <input type="range" min="100" max="160" step="0.1" value={conrod} onChange={(e) => setConrod(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
+        {/* 圧縮比 (Compression) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>圧縮比 (Compression)</span>
-            <span style={{ color: "#4fa9ff", fontWeight: "bold" }}>{compression.toFixed(1)} : 1</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <input 
+                type="number" 
+                min="7.0" 
+                max="13.0" 
+                step="0.1" 
+                value={compression} 
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) setCompression(val);
+                }}
+                onBlur={() => {
+                  // 許容範囲(7.0〜13.0)にクランプ
+                  setCompression(Math.max(7.0, Math.min(13.0, compression)));
+                }}
+                style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
+              />
+              <span style={{ color: "#888", fontSize: "12px" }}>: 1</span>
+            </div>
           </div>
           <input type="range" min="7.0" max="13.0" step="0.1" value={compression} onChange={(e) => setCompression(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
