@@ -1,57 +1,86 @@
-# CrankBench 🛠️
+# CrankBench 🏎️
+> **2D Kinematic Engine Bench Simulator**
 
-> **Rust × WebGL(3D) で描く、熱力学エンジンシミュレータ**
-
-`CrankBench` は、自動車の燃焼理論・幾何学・熱管理の動態を視覚的に理解するためのデスクトップアプリケーション（Windows / macOS）です。  
-フロントエンドにおける軽量な3Dグラフィックス表現（React Three Fiber）と、バックエンド（Rust）による超高速な数値計算を、軽量デスクトップフレームワーク **Tauri v2** で融合させています。
+Rust（Tauri）の高速な計算性能と、React/TypeScriptによるモダンなUIを組み合わせた、リアルタイム熱力学・運動学エンジンシミュレータです。クランク機構の2Dアニメーションと、P-V線図・T-S線図の動的なプロットを、軽量かつ滑らかに実行します。
 
 ---
 
-## 🌟 本プロジェクトの技術的見どころ（ポートフォリオとして）
+## 🚀 主な機能
 
-1. **Rustバックエンドによる幾何学・物理計算の高速処理**
-   - ピストンの往復運動や容積変化など、毎秒60フレーム（60fps）のアニメーション追従に必要な座標計算をすべてRust（Tauriコマンド）でミリ秒以下で処理。
-2. **React Three Fiber (WebGL) による動的データバインディング**
-   - スライダーの変更（ボア径、ストローク量、コンロッド長）をリアルタイムに検知し、3Dモデルの幾何学的スケール（形状の太さ・長さ）を**遅延なくその場で再生成・変形**。
-3. **Tauri v2 による軽量なデスクトップパッケージング**
-   - Electron等に比べ、メモリ消費量を圧倒的に抑えたモダンなアーキテクチャを採用。
+- **動的メカニズムシミュレーション**: ボア径、ストローク、コンロッド長、圧縮比をリアルタイムに変更し、エンジンの挙動を即座に再計算。
+- **マルチレイアウト対応**: 単気筒だけでなく、直列3気筒（120°）、直列4気筒（180°）、直列6気筒（120°）のクランク位相変化を正確に再現。
+- **熱力学サイクルプロット**: 
+  - **P-V線図 (Pressure - Volume)**: 1気筒あたりの図示仕事を可視化。
+  - **T-S線図 (Temperature - Entropy)**: 断熱過程や等容燃焼における熱力学的エネルギー推移を可視化。
+- **性能予測（ベンチマーク）**: 生成されたデータから、最大9000 RPMまでのトルク曲線・出力曲線を内部でエミュレートし、最大トルク（Nm）および最高出力（PS）をリアルタイム算出。
 
 ---
 
 ## 🛠️ 技術スタック
 
-- **Desktop Framework**: Tauri v2
-- **Frontend**: React, TypeScript, Vite
-- **3D Rendering**: React Three Fiber / @react-three/drei (Three.js)
-- **Backend / Engine**: Rust (serde)
+- **Frontend**: React, TypeScript, Vite, Recharts
+- **Backend (Desktop Shell)**: Rust, Tauri v2
+- **Graphics**: HTML5 Canvas (2D Context)
 
 ---
 
-## 📅 開発マイルストーン（1ヶ月集中プラン）
+## ⚡ 描画最適化のアーキテクチャ
 
-- [x] **Week 1 (MVP)**: Tauri v2 + 3D環境構築、幾何学データパイプラインの確立・パーツ結合の最適化
-- [ ] **Week 2**: 断熱圧縮（理想気体の状態方程式）ロジックの実装、2Dグラフ（PV線図）のリアルタイム描画同期
-- [ ] **Week 3**: 点火・燃焼モデル（Wiebe関数）の組み込み、馬力・トルク指標の算出、爆発発光エフェクト
-- [ ] **Week 4**: マルチシリンダ対応（直列3気筒等）、ポートフォリオ向けリファクタリング
+本プロジェクトでは、高頻度なデータ更新と滑らかな2Dアニメーションを両立するため、**「Reactのレンダリングサイクルからの脱却」**をテーマにしたハイブリッド設計を採用しています。
+
+```
+[Rust Backend] (高速計算)
+       │  (Tauri IPC)
+       ▼
+[React App Component] ──(静的背景データ)──> [Recharts (グラフ)] 
+       │                                         ▲
+       │ (useRefによる制御)                      │ (15FPS 間引き更新)
+       ▼                                         │
+[Engine2D Component] ───(requestAnimationFrame)─┘
+       │
+       ├─(60FPS)─> [HTML5 Canvas] (ピストン・クランクの描画)
+       └─(60FPS)─> [DOM Direct Update] (圧力・温度等のテキスト数値を直接書き換え)
+```
+
+1. **DOM Direct Update (60FPS)**:
+   毎フレーム変化するクランク角や筒内圧力・温度などの数値テキストは、Reactの `State` を介さず、`useRef` を用いてブラウザのDOMへ直接インジェクションしています。これにより、Reactの不要な再レンダリング（仮想DOMの再計算）を100%抑制しています。
+2. **描画負荷の分散**:
+   メインのアニメーションおよびCanvas描画はブラウザの最高リフレッシュレート（60FPS+）で駆動させつつ、描画コストの高いグラフ（Recharts）の現在点インジケーターの更新のみを **15FPS** に制限（デバウンス）することで、メインスレッドの占有を防ぎ、カクつき（Jank）を完全に解消しました。
+3. **データの間引き (Data Downsampling)**:
+   グラフの背景線となる720点の膨大なシミュレーションデータを、見た目の滑らかさを損なわない180点に間引いてレンダリングすることで、SVG of Rechartsの描画負荷を大幅に削減しています。
 
 ---
 
-## 🚀 起動方法
+## 📦 セットアップと実行方法
 
-### 1. 依存関係のインストール
+### 前提条件
+- [Node.js](https://nodejs.org/) (v18以上推奨)
+- [Rust](https://www.rust-lang.org/) (cargo, rustc)
+- 各OSに応じたTauriのシステム依存関係（Tauri公式サイトを参照）
+
+### 1. リポジトリのクローン
+```bash
+git clone [https://github.com/YOUR_USERNAME/CrankBench.git](https://github.com/YOUR_USERNAME/CrankBench.git)
+cd CrankBench
+```
+
+### 2. 依存関係のインストール
 ```bash
 npm install
 ```
 
-### 2. 開発サーバーの起動（Tauri環境）
+### 3. 開発モードでの起動（Tauri環境）
 ```bash
 npm run tauri dev
 ```
 
+### 4. プロダクションビルド（スタンドアロンアプリの生成）
+```bash
+npm run tauri build
+```
+
 ---
 
-## 📐 数学的・幾何学的アプローチ（現在の実装）
-ピストンの上死点（TDC）からの変位 $x(\theta)$ は、以下のクランク幾何学の数式をRust側で忠実に実装し、3D空間上のパーツ座標およびシリンダ容積へとフィードバックしています。
+## 📄 ライセンス
 
-$$x(\theta) = r + l - \left( r \cos\theta + \sqrt{l^2 - r^2 \sin^2\theta} \right)$$
-*(※ $r$: クランク半径、 $l$: コネクティングロッド長、 $\theta$: クランク角)*
+[MIT License](LICENSE)
