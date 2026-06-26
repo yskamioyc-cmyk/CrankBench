@@ -490,7 +490,7 @@ export default function App() {
                   {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
                   <Scatter name="Cycle" data={chartData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
                   {currentPoint && (
-                    <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} isFront={true} />
+                    <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} />
                   )}
                 </ScatterChart>
               </ResponsiveContainer>
@@ -514,7 +514,7 @@ export default function App() {
                   {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
                   <Scatter name="Cycle" data={chartData} fill="#ff6b6b" opacity={0.5} line={{ stroke: "#ff6b6b", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
                   {currentPoint && (
-                    <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} isFront={true} />
+                    <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} />
                   )}
                 </ScatterChart>
               </ResponsiveContainer>
