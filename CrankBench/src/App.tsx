@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceDot } from "recharts";
 import "./App.css";
@@ -18,21 +18,21 @@ interface SimulationResult {
   max_power_ps: number;  
 }
 
-function Engine2D({ simData, stroke, bore, conrod, cylinders, onFrameUpdate }: { 
+// 【最適化1】Engine2DをReact.memoでラップし、親(App)が再レンダリングされても再描画されないようにする
+const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinders, onFastUpdate, onSlowUpdate }: { 
   simData: SimulationPoint[]; 
   stroke: number; 
   bore: number; 
   conrod: number;
   cylinders: number;
-  onFrameUpdate: (index: number) => void; 
+  onFastUpdate: (point: SimulationPoint) => void;
+  onSlowUpdate: (point: SimulationPoint) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const angleRef = useRef(0);
   const lastTimeRef = useRef<number>(0);
   const lastGraphUpdateTimeRef = useRef<number>(0);
 
-  // 【最適化1】アニメーションの描画速度を最も滑らかに見える固定値（24 RPM）に設定
-  // 1秒間に144度進むため、60FPS環境で1フレームあたり正確に2.4度ずつ滑らかに回転します
   const ANIMATION_RPM = 12; 
 
   const getPhases = (count: number) => {
@@ -60,11 +60,20 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, onFrameUpdate }: {
       angleRef.current = (angleRef.current + degPerSecond * delta) % 720;
       const exactAngle = angleRef.current;
 
-      // 【最適化2】重いReactのグラフ更新（再レンダリング）を 20FPS（0.05秒）に制限
-      // これによりメインスレッドが解放され、Canvasの描画が60FPSでヌルヌル動くようになります
+      const idx = Math.floor(exactAngle) % 720;
+      const currentPoint = simData[idx];
+
+      if (currentPoint) {
+        // 【最適化2】テキスト系のDOM直接更新（60FPSで滑らかに実行、Reactの再レンダリングは発生しない）
+        onFastUpdate(currentPoint);
+      }
+
+      // 【最適化3】重いグラフの点更新は15FPS(約0.066秒間隔)に制限
       lastGraphUpdateTimeRef.current += delta;
-      if (lastGraphUpdateTimeRef.current >= 0.05) {
-        onFrameUpdate(Math.floor(exactAngle) % 720);
+      if (lastGraphUpdateTimeRef.current >= 1 / 15) {
+        if (currentPoint) {
+          onSlowUpdate(currentPoint);
+        }
         lastGraphUpdateTimeRef.current = 0;
       }
 
@@ -255,14 +264,14 @@ function Engine2D({ simData, stroke, bore, conrod, cylinders, onFrameUpdate }: {
 
     animationFrameId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [simData, stroke, bore, conrod, cylinders]);
+  }, [simData, stroke, bore, conrod, cylinders, onFastUpdate, onSlowUpdate]);
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}>
       <canvas ref={canvasRef} width={560} height={450} style={{ background: "#1a1a1a", borderRadius: "8px", boxShadow: "inset 0 0 20px rgba(0,0,0,0.5)" }} />
     </div>
   );
-}
+});
 
 export default function App() {
   const [bore, setBore] = useState(64.0);
@@ -274,7 +283,15 @@ export default function App() {
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
   const [torque, setTorque] = useState<number>(0); 
   const [power, setPower] = useState<number>(0);   
-  const [currentIdx, setCurrentIdx] = useState<number>(0); 
+  
+  // グラフ上の点のみを管理するためのState (React再描画用)
+  const [currentPoint, setCurrentPoint] = useState<SimulationPoint | null>(null); 
+
+  // DOMを直接書き換えるためのRefs (仮想DOMを介さない超高速更新用)
+  const angleDisplayRef = useRef<HTMLSpanElement>(null);
+  const pressureDisplayRef = useRef<HTMLSpanElement>(null);
+  const tempDisplayRef = useRef<HTMLSpanElement>(null);
+  const strokeDisplayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchKinematics = async () => {
@@ -286,7 +303,7 @@ export default function App() {
             conrod_length_mm: conrod,
             compression_ratio: compression,
             cylinders: cylinders,
-            rpm: 2000, // Rust側にはダミー値として固定の2000を渡す（計算には1000〜9000のループ走査が使われます）
+            rpm: 2000,
           },
         });
         setSimData(result.points);
@@ -300,15 +317,39 @@ export default function App() {
     fetchKinematics();
   }, [bore, stroke, conrod, compression, cylinders]);
 
-  const currentPoint = simData[currentIdx] || { volume_cc: 0, pressure_mpa: 0, temperature_k: 0, crank_angle_deg: 0, entropy_j_k: 0 };
-
   const getStrokeInfo = (angle: number) => {
     if (angle >= 0 && angle < 180) return { name: "① 吸気行程 (Intake)", color: "#4fa9ff" };
     if (angle >= 180 && angle < 360) return { name: "② 圧縮行程 (Compression)", color: "#ffb64f" };
     if (angle >= 360 && angle < 540) return { name: "③ 燃焼膨張 (Power)", color: "#ff4f4f" };
     return { name: "④ 排気行程 (Exhaust)", color: "#aaaaaa" };
   };
-  const strokeStatus = getStrokeInfo(currentPoint.crank_angle_deg);
+
+  // 【最適化4】毎フレーム呼ばれる直接DOM更新ロジック (useCallbackでメモ化)
+  const handleFastUpdate = useCallback((point: SimulationPoint) => {
+    if (angleDisplayRef.current) angleDisplayRef.current.innerText = `${point.crank_angle_deg.toFixed(0)}°`;
+    if (pressureDisplayRef.current) pressureDisplayRef.current.innerText = `${point.pressure_mpa.toFixed(3)} MPa`;
+    if (tempDisplayRef.current) tempDisplayRef.current.innerText = `${(point.temperature_k - 273.15).toFixed(1)} ℃`;
+    
+    if (strokeDisplayRef.current) {
+      const info = getStrokeInfo(point.crank_angle_deg);
+      if (strokeDisplayRef.current.innerText !== info.name) {
+        strokeDisplayRef.current.innerText = info.name;
+        strokeDisplayRef.current.style.color = info.color;
+        strokeDisplayRef.current.style.borderLeftColor = info.color;
+      }
+    }
+  }, []);
+
+  // 15FPSで呼ばれるグラフ描画用のState更新ロジック
+  const handleSlowUpdate = useCallback((point: SimulationPoint) => {
+    setCurrentPoint(point);
+  }, []);
+
+  // 【最適化5】Rechartsに渡す描画データを軽量化 (180点まで間引くことでグラフの処理負荷を大幅削減)
+  const chartData = useMemo(() => {
+    if (!simData || simData.length === 0) return [];
+    return simData.filter((_, i) => i % 4 === 0);
+  }, [simData]);
 
   return (
     <div className="container" style={{ display: "flex", width: "100vw", height: "100vh", background: "#111", color: "#fff", fontFamily: "sans-serif", overflow: "hidden" }}>
@@ -370,21 +411,23 @@ export default function App() {
 
         <div style={{ padding: "12px", background: "#1c1c1c", border: "1px solid #222", borderRadius: "6px" }}>
           <h4 style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#888", letterSpacing: "0.5px" }}>REF CYLINDER (#1) THERMO</h4>
-          <div style={{ margin: "0 0 12px 0", padding: "6px 10px", background: "#222", borderRadius: "4px", borderLeft: `4px solid ${strokeStatus.color}`, fontSize: "13px", fontWeight: "bold", color: strokeStatus.color }}>
-            {strokeStatus.name}
+          <div 
+            ref={strokeDisplayRef}
+            style={{ margin: "0 0 12px 0", padding: "6px 10px", background: "#222", borderRadius: "4px", borderLeft: `4px solid #4fa9ff`, fontSize: "13px", fontWeight: "bold", color: "#4fa9ff" }}>
+            -
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "#888" }}>クランク角:</span>
-              <span style={{ fontFamily: "monospace" }}>{currentPoint.crank_angle_deg.toFixed(0)}°</span>
+              <span ref={angleDisplayRef} style={{ fontFamily: "monospace" }}>0°</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "#aa88ff" }}>筒内圧力 P:</span>
-              <span style={{ fontFamily: "monospace", color: "#aa88ff", fontWeight: "bold" }}>{currentPoint.pressure_mpa ? currentPoint.pressure_mpa.toFixed(3) : "0.100"} MPa</span>
+              <span ref={pressureDisplayRef} style={{ fontFamily: "monospace", color: "#aa88ff", fontWeight: "bold" }}>0.000 MPa</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ color: "#ff8866" }}>筒内温度 T:</span>
-              <span style={{ fontFamily: "monospace", color: "#ff8866" }}>{currentPoint.temperature_k ? (currentPoint.temperature_k - 273.15).toFixed(1) : "20.0"} ℃</span>
+              <span ref={tempDisplayRef} style={{ fontFamily: "monospace", color: "#ff8866" }}>0.0 ℃</span>
             </div>
           </div>
         </div>
@@ -413,9 +456,17 @@ export default function App() {
         
         {/* 左側: 2Dグラフィックス領域 */}
         <div style={{ flex: 1, height: "100%", position: "relative", display: "flex", flexDirection: "column" }}>
-          <Engine2D simData={simData} stroke={stroke} bore={bore} conrod={conrod} cylinders={cylinders} onFrameUpdate={setCurrentIdx} />
+          <Engine2D 
+            simData={simData} 
+            stroke={stroke} 
+            bore={bore} 
+            conrod={conrod} 
+            cylinders={cylinders} 
+            onFastUpdate={handleFastUpdate} 
+            onSlowUpdate={handleSlowUpdate} 
+          />
           <div style={{ position: "absolute", bottom: 15, left: 20, pointerEvents: "none", color: "#666", fontSize: "11px" }}>
-            [2D Canvas Viewport] 描画最適化・固定回転数(12 RPM)モード
+            [2D Canvas Viewport] DOM直接更新・軽量化グラフモード
           </div>
         </div>
 
@@ -436,9 +487,10 @@ export default function App() {
                   <YAxis type="number" dataKey="pressure_mpa" name="Pressure" unit="MPa" domain={[0, "auto"]} stroke="#888" />
                   <ZAxis type="number" range={[4, 4]} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
-                  <Scatter name="Cycle" data={simData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} />
-                  {simData.length > 0 && (
-                    <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} />
+                  {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
+                  <Scatter name="Cycle" data={chartData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
+                  {currentPoint && (
+                    <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} isFront={true} />
                   )}
                 </ScatterChart>
               </ResponsiveContainer>
@@ -459,9 +511,10 @@ export default function App() {
                   <YAxis type="number" dataKey="temperature_k" name="Temperature" unit="K" domain={[0, "auto"]} stroke="#888" />
                   <ZAxis type="number" range={[4, 4]} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
-                  <Scatter name="Cycle" data={simData} fill="#ff6b6b" opacity={0.5} line={{ stroke: "#ff6b6b", strokeWidth: 1.5 }} shape={() => null} />
-                  {simData.length > 0 && (
-                    <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} />
+                  {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
+                  <Scatter name="Cycle" data={chartData} fill="#ff6b6b" opacity={0.5} line={{ stroke: "#ff6b6b", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
+                  {currentPoint && (
+                    <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} isFront={true} />
                   )}
                 </ScatterChart>
               </ResponsiveContainer>
