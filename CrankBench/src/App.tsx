@@ -90,17 +90,47 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      const width = canvas.width;
+      const height = canvas.height;
+
       // Canvasの描画処理（ブラウザの最高FPSで毎回実行）
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const SCALE = 1.1;
-      const r = (stroke * SCALE) / 2;      
-      const l = conrod * SCALE;            
-      const b = bore * SCALE;              
+      // =============================================================
+      // 【★修正箇所】気筒数とボア径に応じた動的な自動ズームアウト（スケール計算）
+      // =============================================================
+      // 側面断面図を表示するための右側エリアの割り当て幅 (Canvasの約半分)
+      const availableWidth = width * 0.48; 
+      const cylinderGap = 15; // シリンダー壁同士の最小隙間(px)
+
+      // 1. 仮の基準スケール（1.3）で、最大値（ボア100mm等）のときでもはみ出さないか計算
+      let scale = 1.3;
       
-      const frontCenterX = 110;             
-      const sideBaseX = 260;               
-      const pSpacing = 90;                 
+      // 仮のスケールでの気筒1つ分のピッチと、全気筒のトータル幅
+      let testB = bore * scale;
+      let testSpacing = testB + cylinderGap;
+      let testTotalWidth = testSpacing * (cylinders - 1) + testB; // 最後の気筒のボア幅分も考慮
+
+      // 2. もし割り当て幅（availableWidth）を超えそうな場合は、ぴったり収まるようにスケールを縮小（ズームアウト）
+      if (testTotalWidth > availableWidth) {
+        // 全気筒が収まる限界のボア径（ピクセル）を逆算
+        // availableWidth = b * (cylinders - 1) + cylinderGap * (cylinders - 1) + b
+        // availableWidth = b * cylinders + cylinderGap * (cylinders - 1)
+        const maxAllowedB = (availableWidth - cylinderGap * (cylinders - 1)) / cylinders;
+        scale = maxAllowedB / bore;
+        
+        // あまり小さくなりすぎないように下限（例: 0.4）を設ける
+        if (scale < 0.4) scale = 0.4;
+      }
+
+      const r = (stroke * scale) / 2;      
+      const l = conrod * scale;            
+      const b = bore * scale;              
+      
+      const frontCenterX = 110;                     
+      const pSpacing = b + cylinderGap;   
+      const totalWidth = pSpacing * (cylinders - 1);   
+      const sideBaseX = (width * 0.75) - (totalWidth / 2);            
       const centerY = canvas.height * 0.72; 
 
       const maxPistonHeight = r + l;
