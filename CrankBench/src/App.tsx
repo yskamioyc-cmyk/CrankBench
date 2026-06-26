@@ -19,12 +19,13 @@ interface SimulationResult {
 }
 
 // 【最適化1】Engine2DをReact.memoでラップし、親(App)が再レンダリングされても再描画されないようにする
-const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinders, onFastUpdate, onSlowUpdate }: { 
+const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFastUpdate, onSlowUpdate }: { 
   simData: SimulationPoint[]; 
   stroke: number; 
   bore: number; 
   conrod: number;
   cylinders: number;
+  rpm: number;  // 追加
   onFastUpdate: (point: SimulationPoint) => void;
   onSlowUpdate: (point: SimulationPoint) => void;
 }) {
@@ -33,7 +34,11 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
   const lastTimeRef = useRef<number>(0);
   const lastGraphUpdateTimeRef = useRef<number>(0);
 
-  const ANIMATION_RPM = 12; 
+  const rpmRef = useRef(rpm);
+
+  useEffect(() => {
+    rpmRef.current = rpm;
+  }, [rpm]);
 
   const getPhases = (count: number) => {
     if (count === 3) return [0, 240, 480];        
@@ -55,8 +60,11 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         animationFrameId = requestAnimationFrame(render);
         return;
       }
-
-      const degPerSecond = (ANIMATION_RPM * 360) / 60;
+      
+      // Refから常に最新のRPMを取得し、1/100のスローモーション速度を計算
+      const currentRpm = rpmRef.current;
+      const animationRpm = currentRpm * 0.01;
+      const degPerSecond = (animationRpm * 360) / 60;
       angleRef.current = (angleRef.current + degPerSecond * delta) % 720;
       const exactAngle = angleRef.current;
 
@@ -137,7 +145,7 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (fData.cylAngle - 360) / 100)})`;
         ctx.fillRect(frontCenterX - b/2, cylinderTopY, b, (fData.pistonY - 25) - cylinderTopY);
       }
-      
+
       // --- バルブの描画ロジック (正面断面図用、追加箇所) ---
       {
         const maxValveDrop = 14; // バルブの最大リフト量（mm相当）
@@ -351,7 +359,7 @@ export default function App() {
   const [conrod, setConrod] = useState(120.0);
   const [compression, setCompression] = useState(9.1);
   const [cylinders, setCylinders] = useState(3); 
-
+  const [rpm, setRpm] = useState(2000); // 新規追加
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
   const [torque, setTorque] = useState<number>(0); 
   const [power, setPower] = useState<number>(0);   
@@ -449,6 +457,23 @@ export default function App() {
           </select>
         </div>
 
+        {/* RPMスライダーの追加*/}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+            <span style={{ color: "#aaa" }}>エンジン回転数 (RPM)</span>
+            <span style={{ color: "#ffb64f", fontWeight: "bold" }}>{rpm} rpm</span>
+          </div>
+          <input 
+            type="range" 
+            min="1000" 
+            max="9000" 
+            step="100" 
+            value={rpm} 
+            onChange={(e) => setRpm(parseInt(e.target.value))} 
+            style={{ width: "100%", marginTop: "5px" }} 
+          />
+        </div>
+
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ボア径 (Bore)</span>
@@ -534,11 +559,12 @@ export default function App() {
             bore={bore} 
             conrod={conrod} 
             cylinders={cylinders} 
+            rpm = {rpm}
             onFastUpdate={handleFastUpdate} 
             onSlowUpdate={handleSlowUpdate} 
           />
           <div style={{ position: "absolute", bottom: 15, left: 20, pointerEvents: "none", color: "#666", fontSize: "11px" }}>
-            [2D Canvas Viewport] DOM直接更新・軽量化グラフモード
+            [2D Canvas Viewport] アニメーションの動作回転数は実際の1/100
           </div>
         </div>
 
