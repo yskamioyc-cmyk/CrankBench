@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceDot } from "recharts";
+// ★ ReferenceLine をインポートに追加
+import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceDot, ReferenceLine } from "recharts";
 import "./App.css";
+
+// ★ パワーカーブ用の型定義を追加
+interface PerformancePoint {
+  rpm: number;
+  torque_kgfm: number;
+  power_ps: number;
+}
 
 interface SimulationPoint {
   crank_angle_deg: number;
@@ -14,18 +22,19 @@ interface SimulationPoint {
 
 interface SimulationResult {
   points: SimulationPoint[];
+  performance_curve: PerformancePoint[]; // ★追加
   max_torque_nm: number; 
   max_power_ps: number;  
 }
 
-// 【最適化1】Engine2DをReact.memoでラップし、親(App)が再レンダリングされても再描画されないようにする
+// 【最適化1】Engine2DをReact.memoでラップ
 const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFastUpdate, onSlowUpdate }: { 
   simData: SimulationPoint[]; 
   stroke: number; 
   bore: number; 
   conrod: number;
   cylinders: number;
-  rpm: number;  // 追加
+  rpm: number; 
   onFastUpdate: (point: SimulationPoint) => void;
   onSlowUpdate: (point: SimulationPoint) => void;
 }) {
@@ -61,7 +70,6 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         return;
       }
       
-      // Refから常に最新のRPMを取得し、1/100のスローモーション速度を計算
       const currentRpm = rpmRef.current;
       const animationRpm = currentRpm * 0.01;
       const degPerSecond = (animationRpm * 360) / 60;
@@ -72,11 +80,9 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       const currentPoint = simData[idx];
 
       if (currentPoint) {
-        // 【最適化2】テキスト系のDOM直接更新（60FPSで滑らかに実行、Reactの再レンダリングは発生しない）
         onFastUpdate(currentPoint);
       }
 
-      // 【最適化3】重いグラフの点更新は15FPS(約0.066秒間隔)に制限
       lastGraphUpdateTimeRef.current += delta;
       if (lastGraphUpdateTimeRef.current >= 1 / 15) {
         if (currentPoint) {
@@ -93,33 +99,19 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       const width = canvas.width;
       const height = canvas.height;
 
-      // Canvasの描画処理（ブラウザの最高FPSで毎回実行）
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // =============================================================
-      // 【★修正箇所】気筒数とボア径に応じた動的な自動ズームアウト（スケール計算）
-      // =============================================================
-      // 側面断面図を表示するための右側エリアの割り当て幅 (Canvasの約半分)
       const availableWidth = width * 0.48; 
-      const cylinderGap = 15; // シリンダー壁同士の最小隙間(px)
+      const cylinderGap = 15;
 
-      // 1. 仮の基準スケール（1.3）で、最大値（ボア100mm等）のときでもはみ出さないか計算
       let scale = 1.3;
-      
-      // 仮のスケールでの気筒1つ分のピッチと、全気筒のトータル幅
       let testB = bore * scale;
       let testSpacing = testB + cylinderGap;
-      let testTotalWidth = testSpacing * (cylinders - 1) + testB; // 最後の気筒のボア幅分も考慮
+      let testTotalWidth = testSpacing * (cylinders - 1) + testB; 
 
-      // 2. もし割り当て幅（availableWidth）を超えそうな場合は、ぴったり収まるようにスケールを縮小（ズームアウト）
       if (testTotalWidth > availableWidth) {
-        // 全気筒が収まる限界のボア径（ピクセル）を逆算
-        // availableWidth = b * (cylinders - 1) + cylinderGap * (cylinders - 1) + b
-        // availableWidth = b * cylinders + cylinderGap * (cylinders - 1)
         const maxAllowedB = (availableWidth - cylinderGap * (cylinders - 1)) / cylinders;
         scale = maxAllowedB / bore;
-        
-        // あまり小さくなりすぎないように下限（例: 0.4）を設ける
         if (scale < 0.4) scale = 0.4;
       }
 
@@ -145,19 +137,14 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       const cylCoords = phases.map((phase) => {
         const cylAngle = (exactAngle + phase) % 720;
         const rad = (cylAngle * Math.PI) / 180;
-
         const pinOffsetReplX = r * Math.sin(rad);
         const pinOffsetReplY = -r * Math.cos(rad);
-
         const conrodAngle = Math.asin((r * Math.sin(rad)) / l);
         const pistonY = centerY - (r * Math.cos(rad) + l * Math.cos(conrodAngle));
-
         return { pinOffsetReplX, pinOffsetReplY, pistonY, cylAngle };
       });
 
-      // =============================================================
-      // 【左半分】正面断面図
-      // =============================================================
+      // 正面断面図
       const fData = cylCoords[0]; 
 
       ctx.fillStyle = COLOR_CASE;
@@ -176,39 +163,31 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.fillRect(frontCenterX - b/2, cylinderTopY, b, (fData.pistonY - 25) - cylinderTopY);
       }
 
-      // --- バルブの描画ロジック (正面断面図用、追加箇所) ---
       {
-        const maxValveDrop = 14; // バルブの最大リフト量（mm相当）
+        const maxValveDrop = 14; 
         let intakeDrop = 0;
         let exhaustDrop = 0;
-
-        // 吸気行程 (0〜180度): サイン波を用いて滑らかにリフトさせる
         if (fData.cylAngle >= 0 && fData.cylAngle <= 180) {
           intakeDrop = maxValveDrop * Math.sin((fData.cylAngle * Math.PI) / 180);
-        }
-        // 排気行程 (540〜720度): 同様にサイン波でリフト
-        else if (fData.cylAngle >= 540 && fData.cylAngle <= 720) {
+        } else if (fData.cylAngle >= 540 && fData.cylAngle <= 720) {
           exhaustDrop = maxValveDrop * Math.sin(((fData.cylAngle - 540) * Math.PI) / 180);
         }
 
-        const valveRadius = b * 0.22; // ボア径に合わせてバルブの傘のサイズを可変にする
-
-        // 吸気バルブ (左側・水色)
+        const valveRadius = b * 0.22; 
         const intakeX = frontCenterX - b / 4;
         const intakeY = cylinderTopY + intakeDrop;
         ctx.fillStyle = "#88ccff";
-        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); // ステム（軸）
+        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); 
         ctx.beginPath();
-        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); // 傘（半円）
+        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); 
         ctx.fill();
 
-        // 排気バルブ (右側・オレンジ/グレー系)
         const exhaustX = frontCenterX + b / 4;
         const exhaustY = cylinderTopY + exhaustDrop;
         ctx.fillStyle = "#ffaa88";
-        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); // ステム
+        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); 
         ctx.beginPath();
-        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); // 傘
+        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); 
         ctx.fill();
       }
 
@@ -255,9 +234,7 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       ctx.arc(frontCenterX, fData.pistonY - 5, 3, 0, Math.PI * 2);
       ctx.fill();
 
-      // =============================================================
-      // 【右半分】側面断面図
-      // =============================================================
+      // 側面断面図
       cylCoords.forEach((coord, i) => {
         const cX = sideBaseX + i * pSpacing;
         
@@ -265,46 +242,36 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.strokeStyle = "#252525";
         ctx.fillRect(cX - b/2, cylinderTopY, b, cylinderHeight);
         
-        // 燃焼エフェクト
         if (coord.cylAngle >= 360 && coord.cylAngle <= 460) {
           ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * (1.0 - (coord.cylAngle - 360) / 100)})`;
           ctx.fillRect(cX - b/2, cylinderTopY, b, (coord.pistonY - 25) - cylinderTopY);
         }
 
-        // --- バルブの描画ロジック ---
-        const maxValveDrop = 14; // バルブの最大リフト量（mm相当）
+        const maxValveDrop = 14; 
         let intakeDrop = 0;
         let exhaustDrop = 0;
-
-        // 吸気行程 (0〜180度): サイン波を用いて滑らかにリフトさせる
         if (coord.cylAngle >= 0 && coord.cylAngle <= 180) {
           intakeDrop = maxValveDrop * Math.sin((coord.cylAngle * Math.PI) / 180);
-        }
-        // 排気行程 (540〜720度): 同様にサイン波でリフト
-        else if (coord.cylAngle >= 540 && coord.cylAngle <= 720) {
+        } else if (coord.cylAngle >= 540 && coord.cylAngle <= 720) {
           exhaustDrop = maxValveDrop * Math.sin(((coord.cylAngle - 540) * Math.PI) / 180);
         }
 
-        const valveRadius = b * 0.22; // ボア径に合わせてバルブの傘のサイズを可変にする
-
-        // 吸気バルブ (左側・水色)
+        const valveRadius = b * 0.22; 
         const intakeX = cX - b / 4;
         const intakeY = cylinderTopY + intakeDrop;
         ctx.fillStyle = "#88ccff";
-        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); // ステム（軸）
+        ctx.fillRect(intakeX - 2, intakeY - 20, 4, 20); 
         ctx.beginPath();
-        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); // 傘（半円）
+        ctx.arc(intakeX, intakeY, valveRadius, 0, Math.PI, false); 
         ctx.fill();
 
-        // 排気バルブ (右側・オレンジ/グレー系)
         const exhaustX = cX + b / 4;
         const exhaustY = cylinderTopY + exhaustDrop;
         ctx.fillStyle = "#ffaa88";
-        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); // ステム
+        ctx.fillRect(exhaustX - 2, exhaustY - 20, 4, 20); 
         ctx.beginPath();
-        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); // 傘
+        ctx.arc(exhaustX, exhaustY, valveRadius, 0, Math.PI, false); 
         ctx.fill();
-        // --- ここまで ---
         
         ctx.strokeStyle = "#3a3a3a";
         ctx.lineWidth = 1;
@@ -389,15 +356,19 @@ export default function App() {
   const [conrod, setConrod] = useState(120.0);
   const [compression, setCompression] = useState(9.1);
   const [cylinders, setCylinders] = useState(3); 
-  const [rpm, setRpm] = useState(2000); // 新規追加
+  const [rpm, setRpm] = useState(2000); 
+  // ★ 過給圧ステートを追加
+  const [boost, setBoost] = useState(0.0); 
+
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
+  // ★ 性能曲線ステートを追加
+  const [perfData, setPerfData] = useState<PerformancePoint[]>([]);
+
   const [torque, setTorque] = useState<number>(0); 
   const [power, setPower] = useState<number>(0);   
   
-  // グラフ上の点のみを管理するためのState (React再描画用)
   const [currentPoint, setCurrentPoint] = useState<SimulationPoint | null>(null); 
 
-  // DOMを直接書き換えるためのRefs (仮想DOMを介さない超高速更新用)
   const angleDisplayRef = useRef<HTMLSpanElement>(null);
   const pressureDisplayRef = useRef<HTMLSpanElement>(null);
   const tempDisplayRef = useRef<HTMLSpanElement>(null);
@@ -413,10 +384,12 @@ export default function App() {
             conrod_length_mm: conrod,
             compression_ratio: compression,
             cylinders: cylinders,
-            rpm: 2000,
+            rpm: rpm, // ★ 固定値から変数のrpmに変更
+            boost_bar: boost, // ★ バックエンドに過給圧を送信
           },
         });
         setSimData(result.points);
+        setPerfData(result.performance_curve); // ★ 追加
         setTorque(result.max_torque_nm); 
         setPower(result.max_power_ps);   
       } catch (error) {
@@ -425,7 +398,7 @@ export default function App() {
     };
 
     fetchKinematics();
-  }, [bore, stroke, conrod, compression, cylinders]);
+  }, [bore, stroke, conrod, compression, cylinders, rpm, boost]); // ★ 依存配列に rpm と boost を追加
 
   const getStrokeInfo = (angle: number) => {
     if (angle >= 0 && angle < 180) return { name: "① 吸気行程 (Intake)", color: "#4fa9ff" };
@@ -434,7 +407,6 @@ export default function App() {
     return { name: "④ 排気行程 (Exhaust)", color: "#aaaaaa" };
   };
 
-  // 【最適化4】毎フレーム呼ばれる直接DOM更新ロジック (useCallbackでメモ化)
   const handleFastUpdate = useCallback((point: SimulationPoint) => {
     if (angleDisplayRef.current) angleDisplayRef.current.innerText = `${point.crank_angle_deg.toFixed(0)}°`;
     if (pressureDisplayRef.current) pressureDisplayRef.current.innerText = `${point.pressure_mpa.toFixed(3)} MPa`;
@@ -450,12 +422,10 @@ export default function App() {
     }
   }, []);
 
-  // 15FPSで呼ばれるグラフ描画用のState更新ロジック
   const handleSlowUpdate = useCallback((point: SimulationPoint) => {
     setCurrentPoint(point);
   }, []);
 
-  // 【最適化5】Rechartsに渡す描画データを軽量化 (180点まで間引くことでグラフの処理負荷を大幅削減)
   const chartData = useMemo(() => {
     if (!simData || simData.length === 0) return [];
     return simData.filter((_, i) => i % 4 === 0);
@@ -487,7 +457,6 @@ export default function App() {
           </select>
         </div>
 
-        {/* RPMスライダーの追加*/}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>エンジン回転数 (RPM)</span>
@@ -504,7 +473,23 @@ export default function App() {
           />
         </div>
 
-        {/* ボア径 (Bore) */}
+        {/* ★ 過給圧 (Boost) スライダーを追加 */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+            <span style={{ color: "#aaa" }}>過給圧 (Boost)</span>
+            <span style={{ color: "#2cd147", fontWeight: "bold" }}>{boost === 0 ? "NA (自然吸気)" : `${boost.toFixed(1)} bar`}</span>
+          </div>
+          <input 
+            type="range" 
+            min="0.0" 
+            max="2.0" 
+            step="0.1" 
+            value={boost} 
+            onChange={(e) => setBoost(parseFloat(e.target.value))} 
+            style={{ width: "100%", marginTop: "5px" }} 
+          />
+        </div>
+
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ボア径 (Bore)</span>
@@ -519,10 +504,7 @@ export default function App() {
                   const val = parseFloat(e.target.value);
                   if (!isNaN(val)) setBore(val);
                 }}
-                onBlur={() => {
-                  // フォーカスが外れた時に、許容範囲(50〜100)に強制クランプ
-                  setBore(Math.max(50, Math.min(100, bore)));
-                }}
+                onBlur={() => setBore(Math.max(50, Math.min(100, bore)))}
                 style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
               />
               <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
@@ -531,7 +513,6 @@ export default function App() {
           <input type="range" min="50" max="100" step="0.1" value={bore} onChange={(e) => setBore(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
-        {/* ストローク (Stroke) */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>ストローク (Stroke)</span>
@@ -546,10 +527,7 @@ export default function App() {
                   const val = parseFloat(e.target.value);
                   if (!isNaN(val)) setStroke(val);
                 }}
-                onBlur={() => {
-                  // 許容範囲(50〜100)にクランプ
-                  setStroke(Math.max(50, Math.min(100, stroke)));
-                }}
+                onBlur={() => setStroke(Math.max(50, Math.min(100, stroke)))}
                 style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
               />
               <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
@@ -558,7 +536,6 @@ export default function App() {
           <input type="range" min="50" max="100" step="0.1" value={stroke} onChange={(e) => setStroke(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
-        {/* コンロッド長 (Conrod) */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>コンロッド長 (Conrod)</span>
@@ -573,10 +550,7 @@ export default function App() {
                   const val = parseFloat(e.target.value);
                   if (!isNaN(val)) setConrod(val);
                 }}
-                onBlur={() => {
-                  // 許容範囲(100〜160)にクランプ
-                  setConrod(Math.max(100, Math.min(160, conrod)));
-                }}
+                onBlur={() => setConrod(Math.max(100, Math.min(160, conrod)))}
                 style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
               />
               <span style={{ color: "#888", fontSize: "12px" }}>mm</span>
@@ -585,7 +559,6 @@ export default function App() {
           <input type="range" min="100" max="160" step="0.1" value={conrod} onChange={(e) => setConrod(parseFloat(e.target.value))} style={{ width: "100%", marginTop: "5px" }} />
         </div>
 
-        {/* 圧縮比 (Compression) */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>圧縮比 (Compression)</span>
@@ -600,10 +573,7 @@ export default function App() {
                   const val = parseFloat(e.target.value);
                   if (!isNaN(val)) setCompression(val);
                 }}
-                onBlur={() => {
-                  // 許容範囲(7.0〜13.0)にクランプ
-                  setCompression(Math.max(7.0, Math.min(13.0, compression)));
-                }}
+                onBlur={() => setCompression(Math.max(7.0, Math.min(13.0, compression)))}
                 style={{ width: "65px", background: "#222", color: "#4fa9ff", border: "1px solid #333", borderRadius: "4px", padding: "2px 6px", textAlign: "right", fontWeight: "bold", fontSize: "14px" }}
               />
               <span style={{ color: "#888", fontSize: "12px" }}>: 1</span>
@@ -654,34 +624,73 @@ export default function App() {
         </div>
       </div>
 
-      {/* 右側：2Dビューアエリア ＋ グラフエリア（P-V & T-S 上下分割） */}
-      <div className="viewer-area" style={{ flex: 1, display: "flex", background: "#161616", height: "100%" }}>
+      {/* 【新レイアウト】右側エリア全体 */}
+      <div className="viewer-and-charts" style={{ flex: 1, display: "flex", background: "#161616", height: "100%" }}>
         
-        {/* 左側: 2Dグラフィックス領域 */}
-        <div style={{ flex: 1, height: "100%", position: "relative", display: "flex", flexDirection: "column" }}>
-          <Engine2D 
-            simData={simData} 
-            stroke={stroke} 
-            bore={bore} 
-            conrod={conrod} 
-            cylinders={cylinders} 
-            rpm = {rpm}
-            onFastUpdate={handleFastUpdate} 
-            onSlowUpdate={handleSlowUpdate} 
-          />
-          <div style={{ position: "absolute", bottom: 15, left: 20, pointerEvents: "none", color: "#666", fontSize: "11px" }}>
-            [2D Canvas Viewport] アニメーションの動作回転数は実際の1/100
+        {/* 中央エリア：上下分割（上：2Dアニメーション、下：性能曲線グラフ） */}
+        <div style={{ flex: 1.2, height: "100%", display: "flex", flexDirection: "column", borderRight: "1px solid #222" }}>
+          
+          {/* 上側: 2Dグラフィックス領域 */}
+          <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", background: "#161616" }}>
+            <Engine2D 
+              simData={simData} 
+              stroke={stroke} 
+              bore={bore} 
+              conrod={conrod} 
+              cylinders={cylinders} 
+              rpm={rpm}
+              onFastUpdate={handleFastUpdate} 
+              onSlowUpdate={handleSlowUpdate} 
+            />
+            <div style={{ position: "absolute", bottom: 10, left: 20, pointerEvents: "none", color: "#666", fontSize: "11px" }}>
+              [2D Canvas Viewport] アニメーションの動作回転数は実際の1/100
+            </div>
           </div>
+
+          {/* 下側: 性能曲線グラフ領域 */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "20px", background: "#131313", borderTop: "1px solid #222" }}>
+            <div style={{ marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "14px", color: "#ffb64f" }}>Performance Curve (性能曲線)</h3>
+                <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>馬力（PS）とトルク（kgf·m）の回転数特性</p>
+              </div>
+              <div style={{ fontSize: "12px", background: "#222", padding: "4px 8px", borderRadius: "4px", border: "1px solid #333" }}>
+                選択中: <span style={{ color: "#ffb64f", fontWeight: "bold" }}>{rpm} rpm</span>
+              </div>
+            </div>
+            
+            <div style={{ flex: 1, width: "100%", minHeight: 0, background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333", padding: "10px" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 20, bottom: 15, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                  {/* tickBox は使用不可のため tick={{ fill: "#888", fontSize: 11 }} に修正 */}
+                  <XAxis type="number" dataKey="rpm" name="Engine Speed" unit="rpm" domain={[1000, 9000]} stroke="#888" tick={{fill: "#888", fontSize: 11}} />
+                  
+                  <YAxis yAxisId="left" type="number" dataKey="power_ps" name="Power" unit="PS" stroke="#ff4f4f" domain={[0, "auto"]} />
+                  <YAxis yAxisId="right" orientation="right" type="number" dataKey="torque_kgfm" name="Torque" unit="kgf·m" stroke="#ffb64f" domain={[0, "auto"]} />
+                  <ZAxis type="number" range={[0, 0]} />
+                  <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
+                  
+                  <Scatter yAxisId="left" name="最高出力" data={perfData} fill="#ff4f4f" line={{ stroke: "#ff4f4f", strokeWidth: 2.5 }} shape={() => null} isAnimationActive={false} />
+                  <Scatter yAxisId="right" name="最大トルク" data={perfData} fill="#ffb64f" line={{ stroke: "#ffb64f", strokeWidth: 2.5 }} shape={() => null} isAnimationActive={false} />
+                  
+                  {/* ReferenceDot を ReferenceLine に修正 */}
+                  <ReferenceLine x={rpm} stroke="#666" strokeDasharray="3 3" label={{ value: "Current", position: "top", fill: "#666", fontSize: 10 }} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
         </div>
 
-        {/* 右側: グラフ領域 (P-V線図 と T-S線図 を上下に分割配置) */}
-        <div style={{ flex: 1, height: "100%", padding: "20px", background: "#131313", display: "flex", flexDirection: "column", borderLeft: "1px solid #222", gap: "20px" }}>
+        {/* 右端：P-V線図 と T-S線図 */}
+        <div style={{ flex: 0.8, height: "100%", padding: "20px", background: "#131313", display: "flex", flexDirection: "column", gap: "20px" }}>
           
-          {/* 上段：P-V線図 (Pressure - Volume) */}
+          {/* 上段：P-V線図 */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
             <div style={{ marginBottom: "10px" }}>
               <h3 style={{ margin: 0, fontSize: "14px", color: "#4fa9ff" }}>P-V Diagram (圧力 - 容積線図)</h3>
-              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>1気筒あたりの図示仕事（ループ面積＝力学的エネルギー）</p>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>1気筒あたりの図示仕事（ループ面積）</p>
             </div>
             <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -691,7 +700,6 @@ export default function App() {
                   <YAxis type="number" dataKey="pressure_mpa" name="Pressure" unit="MPa" domain={[0, "auto"]} stroke="#888" />
                   <ZAxis type="number" range={[4, 4]} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
-                  {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
                   <Scatter name="Cycle" data={chartData} fill="#4fa9ff" opacity={0.5} line={{ stroke: "#4fa9ff", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
                   {currentPoint && (
                     <ReferenceDot x={currentPoint.volume_cc} y={currentPoint.pressure_mpa} r={5} fill="#4fa9ff" stroke="#fff" strokeWidth={2} />
@@ -701,11 +709,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* 下段：T-S線図 (Temperature - Entropy) */}
+          {/* 下段：T-S線図 */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
             <div style={{ marginBottom: "10px" }}>
               <h3 style={{ margin: 0, fontSize: "14px", color: "#ff6b6b" }}>T-S Diagram (温度 - エントロピー線図)</h3>
-              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>断熱過程と等容燃焼における熱力学的エネルギーの推移</p>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>断熱過程と等容燃焼における推移</p>
             </div>
             <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -715,7 +723,6 @@ export default function App() {
                   <YAxis type="number" dataKey="temperature_k" name="Temperature" unit="K" domain={[0, "auto"]} stroke="#888" />
                   <ZAxis type="number" range={[4, 4]} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#222", border: "1px solid #444", fontSize: "12px" }} />
-                  {/* isAnimationActive={false} でRechartsの重いトランジション計算をカット */}
                   <Scatter name="Cycle" data={chartData} fill="#ff6b6b" opacity={0.5} line={{ stroke: "#ff6b6b", strokeWidth: 1.5 }} shape={() => null} isAnimationActive={false} />
                   {currentPoint && (
                     <ReferenceDot x={currentPoint.entropy_j_k} y={currentPoint.temperature_k} r={5} fill="#ff6b6b" stroke="#fff" strokeWidth={2} />
