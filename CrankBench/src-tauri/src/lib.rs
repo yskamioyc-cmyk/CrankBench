@@ -63,7 +63,8 @@ fn calculate_kinematics(config: EngineConfig) -> SimulationResult {
     let r_gas = 287.0;
 
     // 空燃比(AFR)=14.7, ガソリン低位発熱量=44MJ/kgの簡易近似モデル
-    let combustion_pressure_multiplier = 3.5 * (p_intake / 0.1);
+    let combustion_pressure_multiplier = 4.2 * (p_intake / 0.1);
+
 
     for angle_deg in 0..=720 {
         let theta = (angle_deg as f64).to_radians();
@@ -84,7 +85,7 @@ fn calculate_kinematics(config: EngineConfig) -> SimulationResult {
             let t_tdc_comp = t0 * (max_volume / v_c_cc).powf(kappa - 1.0);
             
             let p_comb_max = p_tdc_comp * combustion_pressure_multiplier; 
-            let t_comb_max = t_tdc_comp * 2.5; 
+            let t_comb_max = t_tdc_comp * 2.9; 
 
             let p = p_comb_max * (v_c_cc / volume_cc).powf(kappa);
             let t = t_comb_max * (v_c_cc / volume_cc).powf(kappa - 1.0);
@@ -124,12 +125,14 @@ fn calculate_kinematics(config: EngineConfig) -> SimulationResult {
         let n = rpm_iter as f64;
 
         // 体積効率（高回転での吸気制限・カムの限界を模擬的に再現）
-        let volumetric_efficiency = 0.95 - ((n - 4500.0) / 5500.0).powi(2) * 0.25;
+        let volumetric_efficiency = 0.88 - ((n - 4500.0) / 5000.0).powi(2) * 0.22;
 
         // 機械損失（基本フリクション・カム駆動高回転ロスのシミュレート）
-        let friction_loss = 0.12 + 0.000025 * n;
+        let friction_loss = 0.10 + 0.000020 * n;
         
-        let net_torque = base_indicated_torque * volumetric_efficiency * (1.0 - friction_loss);
+        let net_torque = base_indicated_torque 
+            * (volumetric_efficiency * (1.0 - config.boost_bar * 0.05)) // ブーストがかかるほど背圧で吸気効率微減
+            * (1.0 - friction_loss);
         let torque_kgfm = net_torque * 0.10197;   // net_torque_nm を net_torque に修正
 
         if net_torque > max_torque_nm {
