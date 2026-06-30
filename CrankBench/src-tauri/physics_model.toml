@@ -1,0 +1,16 @@
+# physics_model.toml
+
+[combustion]
+intake_temp_k = 293.15           # 吸気温度（20℃）
+kappa = 1.4                      # 比熱比（空気の理想気体近似）
+cv_air = 718.0                   # 空気の定積比熱 (J / kg・K)
+r_gas_air = 287.0                # 気体定数 (J / kg・K)
+pressure_multiplier_base = 4.2   # 燃焼圧力上昇のベース倍率
+
+[performance]
+base_volumetric_efficiency = 0.88  # 体積効率の基本値
+ve_rpm_center = 4500.0             # 体積効率のピーク回転数
+ve_rpm_scale = 5000.0              # 体積効率の低下曲線のスケーリング係数
+ve_drop_coefficient = 0.22         # 体積効率の高回転での低下係数
+base_friction_loss = 0.10          # 基本フリクション損失
+friction_rpm_coefficient = 0.000020 # 回転数に応じたフリクション増加係数

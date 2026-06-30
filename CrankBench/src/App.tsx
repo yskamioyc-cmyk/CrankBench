@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-// ★ ReferenceLine をインポートに追加
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceDot, ReferenceLine } from "recharts";
 import "./App.css";
 
-// ★ パワーカーブ用の型定義を追加
 interface PerformancePoint {
   rpm: number;
   torque_kgfm: number;
@@ -22,12 +20,11 @@ interface SimulationPoint {
 
 interface SimulationResult {
   points: SimulationPoint[];
-  performance_curve: PerformancePoint[]; // ★追加
+  performance_curve: PerformancePoint[]; 
   max_torque_nm: number; 
   max_power_ps: number;  
 }
 
-// 【最適化1】Engine2DをReact.memoでラップ
 const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinders, rpm, onFastUpdate, onSlowUpdate }: { 
   simData: SimulationPoint[]; 
   stroke: number; 
@@ -357,11 +354,9 @@ export default function App() {
   const [compression, setCompression] = useState(9.1);
   const [cylinders, setCylinders] = useState(3); 
   const [rpm, setRpm] = useState(2000); 
-  // ★ 過給圧ステートを追加
   const [boost, setBoost] = useState(0.0); 
 
   const [simData, setSimData] = useState<SimulationPoint[]>([]);
-  // ★ 性能曲線ステートを追加
   const [perfData, setPerfData] = useState<PerformancePoint[]>([]);
 
   const [torque, setTorque] = useState<number>(0); 
@@ -384,12 +379,12 @@ export default function App() {
             conrod_length_mm: conrod,
             compression_ratio: compression,
             cylinders: cylinders,
-            rpm: rpm, // ★ 固定値から変数のrpmに変更
-            boost_bar: boost, // ★ バックエンドに過給圧を送信
+            rpm: rpm, 
+            boost_x100kpa: boost, // ★ boost_bar から boost_x100kpa へ変更
           },
         });
         setSimData(result.points);
-        setPerfData(result.performance_curve); // ★ 追加
+        setPerfData(result.performance_curve); 
         setTorque(result.max_torque_nm); 
         setPower(result.max_power_ps);   
       } catch (error) {
@@ -398,7 +393,7 @@ export default function App() {
     };
 
     fetchKinematics();
-  }, [bore, stroke, conrod, compression, cylinders, rpm, boost]); // ★ 依存配列に rpm と boost を追加
+  }, [bore, stroke, conrod, compression, cylinders, rpm, boost]); 
 
   const getStrokeInfo = (angle: number) => {
     if (angle >= 0 && angle < 180) return { name: "① 吸気行程 (Intake)", color: "#4fa9ff" };
@@ -473,11 +468,12 @@ export default function App() {
           />
         </div>
 
-        {/* ★ 過給圧 (Boost) スライダーを追加 */}
+        {/* 過給圧 (Boost) スライダー */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
             <span style={{ color: "#aaa" }}>過給圧 (Boost)</span>
-            <span style={{ color: "#2cd147", fontWeight: "bold" }}>{boost === 0 ? "NA (自然吸気)" : `${boost.toFixed(1)} bar`}</span>
+            {/* ★ 表示単位を ×100kPa に変更 */}
+            <span style={{ color: "#2cd147", fontWeight: "bold" }}>{boost === 0 ? "NA (自然吸気)" : `${boost.toFixed(1)} ×100kPa`}</span>
           </div>
           <input 
             type="range" 
@@ -624,7 +620,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 【新レイアウト】右側エリア全体 */}
+      {/* 右側エリア全体 */}
       <div className="viewer-and-charts" style={{ flex: 1, display: "flex", background: "#161616", height: "100%" }}>
         
         {/* 中央エリア：上下分割（上：2Dアニメーション、下：性能曲線グラフ） */}
@@ -663,7 +659,6 @@ export default function App() {
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 10, right: 20, bottom: 15, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                  {/* tickBox は使用不可のため tick={{ fill: "#888", fontSize: 11 }} に修正 */}
                   <XAxis type="number" dataKey="rpm" name="Engine Speed" unit="rpm" domain={[1000, 9000]} stroke="#888" tick={{fill: "#888", fontSize: 11}} />
                   
                   <YAxis yAxisId="left" type="number" dataKey="power_ps" name="Power" unit="PS" stroke="#ff4f4f" domain={[0, "auto"]} />
@@ -674,7 +669,6 @@ export default function App() {
                   <Scatter yAxisId="left" name="最高出力" data={perfData} fill="#ff4f4f" line={{ stroke: "#ff4f4f", strokeWidth: 2.5 }} shape={() => null} isAnimationActive={false} />
                   <Scatter yAxisId="right" name="最大トルク" data={perfData} fill="#ffb64f" line={{ stroke: "#ffb64f", strokeWidth: 2.5 }} shape={() => null} isAnimationActive={false} />
                   
-                  {/* ReferenceDot を ReferenceLine に修正 */}
                   <ReferenceLine x={rpm} stroke="#666" strokeDasharray="3 3" label={{ value: "Current", position: "top", fill: "#666", fontSize: 10 }} />
                 </ScatterChart>
               </ResponsiveContainer>

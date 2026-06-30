@@ -3324,6 +3324,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "toml 0.8.2",
 ]
 
 [[package]]
