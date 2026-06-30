@@ -1,7 +1,7 @@
 # physics_model.toml
 
 [combustion]
-intake_temp_k = 293.15           # 吸気温度（20℃）
+intake_temp_k = 293.15           # 吸気絶対温度（20℃に相当）
 kappa = 1.4                      # 比熱比（空気の理想気体近似）
 cv_air = 718.0                   # 空気の定積比熱 (J / kg・K)
 r_gas_air = 287.0                # 気体定数 (J / kg・K)
