@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceDot, ReferenceLine } from "recharts";
 import "./App.css";
@@ -94,7 +94,6 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       if (!ctx) return;
 
       const width = canvas.width;
-      const height = canvas.height;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -240,7 +239,7 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
         ctx.font = "bold 14px sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(`#${i + 1}`, cX, cylinderTopY -25);
-        
+
         ctx.fillStyle = COLOR_CASE;
         ctx.strokeStyle = "#252525";
         ctx.fillRect(cX - b/2, cylinderTopY, b, cylinderHeight);
