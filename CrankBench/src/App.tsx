@@ -235,6 +235,12 @@ const Engine2D = memo(function Engine2D({ simData, stroke, bore, conrod, cylinde
       cylCoords.forEach((coord, i) => {
         const cX = sideBaseX + i * pSpacing;
         
+        // シリンダー番号描画
+        ctx.fillStyle = "#aaaaaa";
+        ctx.font = "bold 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(`#${i + 1}`, cX, cylinderTopY -25);
+        
         ctx.fillStyle = COLOR_CASE;
         ctx.strokeStyle = "#252525";
         ctx.fillRect(cX - b/2, cylinderTopY, b, cylinderHeight);
@@ -683,7 +689,7 @@ export default function App() {
           {/* 上段：P-V線図 */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
             <div style={{ marginBottom: "10px" }}>
-              <h3 style={{ margin: 0, fontSize: "14px", color: "#4fa9ff" }}>P-V Diagram (圧力 - 容積線図)</h3>
+              <h3 style={{ margin: 0, fontSize: "14px", color: "#4fa9ff" }}>P-V Diagram (圧力 - 容積線図) シリンダー#1</h3>
               <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>1気筒あたりの図示仕事（ループ面積）</p>
             </div>
             <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
@@ -706,7 +712,7 @@ export default function App() {
           {/* 下段：T-S線図 */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px", background: "#1a1a1a", borderRadius: "8px", border: "1px solid #333" }}>
             <div style={{ marginBottom: "10px" }}>
-              <h3 style={{ margin: 0, fontSize: "14px", color: "#ff6b6b" }}>T-S Diagram (温度 - エントロピー線図)</h3>
+              <h3 style={{ margin: 0, fontSize: "14px", color: "#ff6b6b" }}>T-S Diagram (温度 - エントロピー線図) シリンダー#1</h3>
               <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>断熱過程と等容燃焼における推移</p>
             </div>
             <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
